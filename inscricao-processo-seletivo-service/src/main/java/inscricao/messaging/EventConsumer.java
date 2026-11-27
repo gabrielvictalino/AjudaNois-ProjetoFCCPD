@@ -81,6 +81,9 @@ public class EventConsumer implements AutoCloseable {
                 System.out.println("[RABBITMQ-CONSUMER] Conectado e escutando filas de sincronização do MS4.");
                 return; // O RabbitMQ client mantém a thread de dispatch e faz recovery automático
             } catch (Exception e) {
+                if (!rodando.get()) {
+                    return;
+                }
                 System.out.printf(
                         "[RABBITMQ-CONSUMER] Broker indisponível (%s). Nova tentativa em %ds...%n",
                         e.getMessage(), RECONNECT_DELAY_MS / 1000
@@ -124,6 +127,7 @@ public class EventConsumer implements AutoCloseable {
             try {
                 processarMensagem(routingKey, body);
                 ch.basicAck(tag, false);
+                System.out.printf("[RABBITMQ-CONSUMER] Evento '%s' sincronizado e confirmado (ACK).%n", routingKey);
             } catch (JsonProcessingException | IllegalArgumentException malformed) {
                 System.out.printf(
                         "[RABBITMQ-CONSUMER] Mensagem inválida em '%s' enviada para DLQ: %s%n",
