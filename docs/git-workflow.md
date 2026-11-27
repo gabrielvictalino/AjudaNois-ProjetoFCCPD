@@ -127,6 +127,7 @@ O `<escopo>` deve corresponder ao módulo ou área do projeto afetada:
 - `cliente` — aplicação cliente em `cliente/`
 - `servidor` — servidor de processamento concorrente em `servidor/`
 - `coordenador` — serviço de coordenação e banco de dados em `cordenador-gerenciamento-service/`
+- `inscricao` — serviço de inscrição em processo seletivo em `inscricao-processo-seletivo-service/`
 - `infra` — `docker-compose.yml`, `dockerfile`, configuração de RabbitMQ/MySQL
 - `ci` — workflows em `.github/workflows/`
 - `docs` — documentação (`README.md`, `docs/`)
@@ -169,7 +170,7 @@ A CI está configurada em [`.github/workflows/ci.yml`](../.github/workflows/ci.y
 
 1. **Build e testes unitários (`Build & Test`)**:
    - Configura Java 21 (Temurin) com cache de dependências Maven.
-   - Executa `mvn -B test` no projeto multi-módulo raiz, compilando todos os módulos (`entidades`, `cliente`, `servidor`, `cordenador-gerenciamento-service`) e executando os testes unitários.
+   - Executa `mvn -B test` no projeto multi-módulo raiz, compilando todos os módulos (`entidades`, `cliente`, `servidor`, `cordenador-gerenciamento-service`, `inscricao-processo-seletivo-service`) e executando os testes unitários.
    - Valida a sintaxe do `docker-compose.yml` com `docker compose config -q`.
 2. **Convenções de PR (`PR Conventions`)**:
    - Valida que o nome da branch de origem segue `<tipo>/<descricao-curta>` (exceto em PRs de `dev` para `main`).
