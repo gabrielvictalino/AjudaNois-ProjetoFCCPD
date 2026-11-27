@@ -1,41 +1,22 @@
 package entidades;
-
+import java.time.LocalDate;
+import java.time.LocalDateTime;
+import java.util.ArrayList;
+import java.util.List;
 public class Atividade {
 
-    private String aluno;
-    private int posicao;
-    private String Q1;
-    private String Q2;
-    private String Q3;
+    public int id;
+    public LocalDateTime dataEnvio;
+    public List<Questao> questoes;
+    public Aluno aluno;
+    public Correcao correcao;
 
-    public Atividade() {
-    }
-
-    public Atividade(String aluno, int posicao, String Q1, String Q2, String Q3) {
+    public Atividade(Aluno aluno, int id, LocalDateTime dataEnvio, Correcao correcao) {
         this.aluno = aluno;
-        this.posicao = posicao;
-        this.Q1 = Q1;
-        this.Q2 = Q2;
-        this.Q3 = Q3;
-    }
-
-    public String getAluno() {
-        return aluno;
-    }
-
-    public int getPosicao() {
-        return posicao;
-    }
-
-    public String getQ1() {
-        return Q1;
-    }
-
-    public String getQ2() {
-        return Q2;
-    }
-
-    public String getQ3() {
-        return Q3;
+        this.id = id;
+        this.correcao = correcao;
+        this.dataEnvio = dataEnvio;
+        this.correcao = correcao;
     }
 }
+

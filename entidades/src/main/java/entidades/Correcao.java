@@ -1,22 +1,25 @@
 package entidades;
 
-public class Resultado {
+public class Correcao {
 
-    private String aluno;
-    private int posicao;
-    private boolean correta;
-    private double pontos;
+    public String aluno;
+    public int posicao;
+    public boolean correta;
+    public double pontos;
+    public Atividade atividade;
 
-    public Resultado(
+    public Correcao(
             String aluno,
             int posicao,
             boolean correta,
-            double pontos) {
+            double pontos,
+            Atividade atividade) {
 
         this.aluno = aluno;
         this.posicao = posicao;
         this.correta = correta;
         this.pontos = pontos;
+        this.atividade = atividade;
     }
 
     public String getAluno() {
