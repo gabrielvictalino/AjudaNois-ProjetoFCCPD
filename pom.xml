@@ -14,5 +14,6 @@
         <module>cliente</module>
         <module>servidor</module>
         <module>cordenador-gerenciamento-service</module>
+        <module>inscricao-processo-seletivo-service</module>
     </modules>
 </project>
