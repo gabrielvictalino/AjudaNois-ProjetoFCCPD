@@ -13,5 +13,6 @@
         <module>entidades</module>
         <module>cliente</module>
         <module>servidor</module>
+        <module>cordenador-gerenciamento-service</module>
     </modules>
 </project>

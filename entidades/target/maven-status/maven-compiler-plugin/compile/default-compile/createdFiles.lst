@@ -1,2 +1,9 @@
-entidades/Resultado.class
+entidades/Professor.class
+entidades/Aluno.class
+entidades/Sala.class
+entidades/Questao.class
+entidades/Correcao.class
+entidades/Coordenador.class
+entidades/ProcessoSeletivo.class
 entidades/Atividade.class
+entidades/Monitor.class

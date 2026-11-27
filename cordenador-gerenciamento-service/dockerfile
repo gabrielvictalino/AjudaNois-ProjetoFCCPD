@@ -1,0 +1,9 @@
+FROM eclipse-temurin:21-jre
+
+WORKDIR /app
+
+COPY target/dependency/ lib/
+
+COPY target/cordenador-gerenciamento-service-1.0-SNAPSHOT.jar app.jar
+
+ENTRYPOINT ["java", "-cp", "app.jar:lib/*", "coordenador.Main"]

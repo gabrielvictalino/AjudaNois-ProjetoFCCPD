@@ -1,4 +1,5 @@
 services:
+
   rabbitmq:
     image: rabbitmq:4-management
     container_name: ajudanois-rabbitmq
@@ -14,5 +15,35 @@ services:
     volumes:
       - rabbitmq_data:/var/lib/rabbitmq
 
+  coordenador:
+    build: ./cordenador-gerenciamento-service
+    container_name: ajudanois-coordenador
+
+    stdin_open: true
+    tty: true
+
+    environment:
+      DB_URL: jdbc:mysql://db-coordenador:3306/coordenador_db
+      DB_USER: coordenador
+      DB_PASSWORD: senha
+
+    depends_on:
+      - rabbitmq
+      - db-coordenador
+
+  db-coordenador:
+    image: mysql:8.4
+    container_name: ajudanois-db-coordenador
+
+    environment:
+      MYSQL_DATABASE: coordenador_db
+      MYSQL_USER: coordenador
+      MYSQL_PASSWORD: senha
+      MYSQL_ROOT_PASSWORD: root_senha
+
+    volumes:
+      - coordenador_data:/var/lib/mysql
+
 volumes:
   rabbitmq_data:
+  coordenador_data:
