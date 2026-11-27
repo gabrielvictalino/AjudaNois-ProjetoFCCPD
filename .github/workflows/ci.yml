@@ -1,0 +1,74 @@
+name: CI
+
+on:
+  pull_request:
+    branches:
+      - main
+      - dev
+  push:
+    branches:
+      - main
+      - dev
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build-and-test:
+    name: Build & Test
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Java 21
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "21"
+          cache: maven
+
+      - name: Build and run unit tests (Maven)
+        run: mvn -B test
+
+      - name: Validate Docker Compose configuration
+        run: docker compose config -q
+
+  pr-conventions:
+    name: PR Conventions
+    if: github.event_name == 'pull_request'
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Validate branch naming and target
+        env:
+          HEAD_REF: ${{ github.head_ref }}
+          BASE_REF: ${{ github.base_ref }}
+        run: |
+          if [ "$BASE_REF" = "main" ]; then
+            if [ "$HEAD_REF" != "dev" ]; then
+              echo "::error::PRs para 'main' devem partir exclusivamente da branch 'dev' (atual: '$HEAD_REF')."
+              exit 1
+            fi
+          else
+            if ! echo "$HEAD_REF" | grep -Eq '^(feat|fix|docs|refactor|test|chore|style)/[a-z0-9]+([a-z0-9-]*[a-z0-9])?$'; then
+              echo "::error::Nome da branch '$HEAD_REF' invalido. Use <tipo>/<descricao-curta> em kebab-case (ex.: feat/fila-atividades)."
+              exit 1
+            fi
+          fi
+          echo "Branch '$HEAD_REF' -> '$BASE_REF' valida."
+
+      - name: Validate PR title (Conventional Commits)
+        env:
+          PR_TITLE: ${{ github.event.pull_request.title }}
+        run: |
+          if ! echo "$PR_TITLE" | grep -Eq '^(feat|fix|docs|refactor|test|chore|style)(\([a-z0-9-]+\))?!?: .+'; then
+            echo "::error::Titulo do PR '$PR_TITLE' fora do padrao Conventional Commits. Use: <tipo>(<escopo>): <resumo curto>"
+            exit 1
+          fi
+          echo "Titulo do PR valido: $PR_TITLE"
