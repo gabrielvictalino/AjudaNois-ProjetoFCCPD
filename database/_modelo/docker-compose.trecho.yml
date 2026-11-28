@@ -1,0 +1,50 @@
+# =====================================================================
+# MODELO do trecho do docker-compose.yml para o banco de UM microsserviço.
+#
+# Copie o bloco "services" para dentro de services: do docker-compose.yml
+# da raiz e o bloco "volumes" para dentro de volumes:, trocando <nome>,
+# <N> e <usuario>. Este arquivo NÃO é lido pelo Docker: é só um modelo.
+# Senhas vêm do .env (modelo em .env.example); sem .env, valem os padrões.
+# Isso é só o que precisa ser colocado para alterar no arquivo principal docker-compose.yml.
+# Não deve ser colocaada em nenhuma pasta ou arquivo dentro de database,
+# só no docker-compose.yml da raiz do projeto.
+
+# =====================================================================
+
+services:
+
+  db-<nome>:                                   # ALTERE: db-salas, db-login...
+    image: mysql:8.4                           # versão fixa, nunca "latest"
+    container_name: ajudanois-db-<nome>        # ALTERE
+    command: [--performance-schema=OFF, --innodb-buffer-pool-size=32M, --character-set-server=utf8mb4, --collation-server=utf8mb4_0900_ai_ci]
+                                               # deixa cada MySQL leve (~150 MB) e em UTF-8
+    ports:
+      - "331<N>:3306"                          # ALTERE: 3311 para o MS1, 3312 para o MS2...
+    environment:
+      MYSQL_DATABASE: <nome>_db                # ALTERE: banco criado vazio na 1a subida
+      MYSQL_USER: <usuario>                    # ALTERE: usuário só com acesso a este banco
+      MYSQL_PASSWORD: ${DB_SENHA:-senha}
+      MYSQL_ROOT_PASSWORD: ${DB_ROOT_SENHA:-root_senha}
+    volumes:
+      - <nome>_data:/var/lib/mysql             # ALTERE: onde os dados ficam guardados
+      - ./database/ms<N>-<nome>:/docker-entrypoint-initdb.d:ro   # ALTERE: scripts .sql da 1a subida
+    healthcheck:                               # o serviço Java só sobe quando o banco responde
+      test: ["CMD-SHELL", "mysqladmin ping -h 127.0.0.1 -uroot -p$$MYSQL_ROOT_PASSWORD --silent"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+      start_period: 30s
+    restart: unless-stopped
+
+  # No serviço Java que usa este banco, aponte para ele e espere ficar saudável:
+  # <nome>-service:
+  #   environment:
+  #     DB_URL: jdbc:mysql://db-<nome>:3306/<nome>_db?useSSL=false&allowPublicKeyRetrieval=true
+  #     DB_USER: <usuario>
+  #     DB_PASSWORD: ${DB_SENHA:-senha}
+  #   depends_on:
+  #     db-<nome>:
+  #       condition: service_healthy
+
+volumes:
+  <nome>_data:                                 # ALTERE

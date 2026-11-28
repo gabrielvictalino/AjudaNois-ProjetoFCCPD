@@ -25,25 +25,203 @@ services:
     environment:
       DB_URL: jdbc:mysql://db-coordenador:3306/coordenador_db
       DB_USER: coordenador
-      DB_PASSWORD: senha
+      DB_PASSWORD: ${DB_SENHA:-senha}
 
     depends_on:
-      - rabbitmq
-      - db-coordenador
+      rabbitmq:
+        condition: service_started
+      db-coordenador:
+        condition: service_healthy
 
-  db-coordenador:
+  # ===================================================================
+  # Bancos de dados: um MySQL por microsserviço.
+  # Todos seguem o modelo database/_modelo/docker-compose.trecho.yml.
+  # Como adicionar, resetar ou remover um banco: database/README.md
+  # ===================================================================
+
+  db-coordenador:                        # MS1 — gerenciamento
     image: mysql:8.4
     container_name: ajudanois-db-coordenador
-
+    command: [--performance-schema=OFF, --innodb-buffer-pool-size=32M, --character-set-server=utf8mb4, --collation-server=utf8mb4_0900_ai_ci]
+    ports:
+      - "3311:3306"
     environment:
       MYSQL_DATABASE: coordenador_db
       MYSQL_USER: coordenador
-      MYSQL_PASSWORD: senha
-      MYSQL_ROOT_PASSWORD: root_senha
-
+      MYSQL_PASSWORD: ${DB_SENHA:-senha}
+      MYSQL_ROOT_PASSWORD: ${DB_ROOT_SENHA:-root_senha}
     volumes:
       - coordenador_data:/var/lib/mysql
+      - ./database/ms1-coordenador:/docker-entrypoint-initdb.d:ro
+    healthcheck:
+      test: ["CMD-SHELL", "mysqladmin ping -h 127.0.0.1 -uroot -p$$MYSQL_ROOT_PASSWORD --silent"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+      start_period: 30s
+    restart: unless-stopped
+
+  db-salas:                              # MS2 — salas
+    image: mysql:8.4
+    container_name: ajudanois-db-salas
+    command: [--performance-schema=OFF, --innodb-buffer-pool-size=32M, --character-set-server=utf8mb4, --collation-server=utf8mb4_0900_ai_ci]
+    ports:
+      - "3312:3306"
+    environment:
+      MYSQL_DATABASE: salas_db
+      MYSQL_USER: salas
+      MYSQL_PASSWORD: ${DB_SENHA:-senha}
+      MYSQL_ROOT_PASSWORD: ${DB_ROOT_SENHA:-root_senha}
+    volumes:
+      - salas_data:/var/lib/mysql
+      - ./database/ms2-salas:/docker-entrypoint-initdb.d:ro
+    healthcheck:
+      test: ["CMD-SHELL", "mysqladmin ping -h 127.0.0.1 -uroot -p$$MYSQL_ROOT_PASSWORD --silent"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+      start_period: 30s
+    restart: unless-stopped
+
+  db-processo-seletivo:                  # MS3 — processo seletivo e monitores
+    image: mysql:8.4
+    container_name: ajudanois-db-processo-seletivo
+    command: [--performance-schema=OFF, --innodb-buffer-pool-size=32M, --character-set-server=utf8mb4, --collation-server=utf8mb4_0900_ai_ci]
+    ports:
+      - "3313:3306"
+    environment:
+      MYSQL_DATABASE: processo_seletivo_db
+      MYSQL_USER: processo_seletivo
+      MYSQL_PASSWORD: ${DB_SENHA:-senha}
+      MYSQL_ROOT_PASSWORD: ${DB_ROOT_SENHA:-root_senha}
+    volumes:
+      - processo_seletivo_data:/var/lib/mysql
+      - ./database/ms3-processo-seletivo:/docker-entrypoint-initdb.d:ro
+    healthcheck:
+      test: ["CMD-SHELL", "mysqladmin ping -h 127.0.0.1 -uroot -p$$MYSQL_ROOT_PASSWORD --silent"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+      start_period: 30s
+    restart: unless-stopped
+
+  db-inscricao-ps:                       # MS4 — inscrição em processo seletivo
+    image: mysql:8.4
+    container_name: ajudanois-db-inscricao-ps
+    command: [--performance-schema=OFF, --innodb-buffer-pool-size=32M, --character-set-server=utf8mb4, --collation-server=utf8mb4_0900_ai_ci]
+    ports:
+      - "3314:3306"
+    environment:
+      MYSQL_DATABASE: inscricao_ps_db
+      MYSQL_USER: inscricao
+      MYSQL_PASSWORD: ${DB_SENHA:-senha}
+      MYSQL_ROOT_PASSWORD: ${DB_ROOT_SENHA:-root_senha}
+    volumes:
+      - inscricao_ps_data:/var/lib/mysql
+      - ./database/ms4-inscricao:/docker-entrypoint-initdb.d:ro
+    healthcheck:
+      test: ["CMD-SHELL", "mysqladmin ping -h 127.0.0.1 -uroot -p$$MYSQL_ROOT_PASSWORD --silent"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+      start_period: 30s
+    restart: unless-stopped
+
+  db-atividades:                         # MS5 — atividades, correção e ranking
+    image: mysql:8.4
+    container_name: ajudanois-db-atividades
+    command: [--performance-schema=OFF, --innodb-buffer-pool-size=32M, --character-set-server=utf8mb4, --collation-server=utf8mb4_0900_ai_ci]
+    ports:
+      - "3315:3306"
+    environment:
+      MYSQL_DATABASE: atividades_db
+      MYSQL_USER: atividades
+      MYSQL_PASSWORD: ${DB_SENHA:-senha}
+      MYSQL_ROOT_PASSWORD: ${DB_ROOT_SENHA:-root_senha}
+    volumes:
+      - atividades_data:/var/lib/mysql
+      - ./database/ms5-atividades:/docker-entrypoint-initdb.d:ro
+    healthcheck:
+      test: ["CMD-SHELL", "mysqladmin ping -h 127.0.0.1 -uroot -p$$MYSQL_ROOT_PASSWORD --silent"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+      start_period: 30s
+    restart: unless-stopped
+
+  db-respostas:                          # MS6 — respostas do aluno
+    image: mysql:8.4
+    container_name: ajudanois-db-respostas
+    command: [--performance-schema=OFF, --innodb-buffer-pool-size=32M, --character-set-server=utf8mb4, --collation-server=utf8mb4_0900_ai_ci]
+    ports:
+      - "3316:3306"
+    environment:
+      MYSQL_DATABASE: respostas_db
+      MYSQL_USER: respostas
+      MYSQL_PASSWORD: ${DB_SENHA:-senha}
+      MYSQL_ROOT_PASSWORD: ${DB_ROOT_SENHA:-root_senha}
+    volumes:
+      - respostas_data:/var/lib/mysql
+      - ./database/ms6-respostas:/docker-entrypoint-initdb.d:ro
+    healthcheck:
+      test: ["CMD-SHELL", "mysqladmin ping -h 127.0.0.1 -uroot -p$$MYSQL_ROOT_PASSWORD --silent"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+      start_period: 30s
+    restart: unless-stopped
+
+  db-login:                              # MS7 — login
+    image: mysql:8.4
+    container_name: ajudanois-db-login
+    command: [--performance-schema=OFF, --innodb-buffer-pool-size=32M, --character-set-server=utf8mb4, --collation-server=utf8mb4_0900_ai_ci]
+    ports:
+      - "3317:3306"
+    environment:
+      MYSQL_DATABASE: login_db
+      MYSQL_USER: login
+      MYSQL_PASSWORD: ${DB_SENHA:-senha}
+      MYSQL_ROOT_PASSWORD: ${DB_ROOT_SENHA:-root_senha}
+    volumes:
+      - login_data:/var/lib/mysql
+      - ./database/ms7-login:/docker-entrypoint-initdb.d:ro
+    healthcheck:
+      test: ["CMD-SHELL", "mysqladmin ping -h 127.0.0.1 -uroot -p$$MYSQL_ROOT_PASSWORD --silent"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+      start_period: 30s
+    restart: unless-stopped
+
+  db-matricula:                          # MS8 — entrada na sala
+    image: mysql:8.4
+    container_name: ajudanois-db-matricula
+    command: [--performance-schema=OFF, --innodb-buffer-pool-size=32M, --character-set-server=utf8mb4, --collation-server=utf8mb4_0900_ai_ci]
+    ports:
+      - "3318:3306"
+    environment:
+      MYSQL_DATABASE: matricula_db
+      MYSQL_USER: matricula
+      MYSQL_PASSWORD: ${DB_SENHA:-senha}
+      MYSQL_ROOT_PASSWORD: ${DB_ROOT_SENHA:-root_senha}
+    volumes:
+      - matricula_data:/var/lib/mysql
+      - ./database/ms8-matricula:/docker-entrypoint-initdb.d:ro
+    healthcheck:
+      test: ["CMD-SHELL", "mysqladmin ping -h 127.0.0.1 -uroot -p$$MYSQL_ROOT_PASSWORD --silent"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+      start_period: 30s
+    restart: unless-stopped
 
 volumes:
   rabbitmq_data:
   coordenador_data:
+  salas_data:
+  processo_seletivo_data:
+  inscricao_ps_data:
+  atividades_data:
+  respostas_data:
+  login_data:
+  matricula_data:

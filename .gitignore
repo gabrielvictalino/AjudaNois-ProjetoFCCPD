@@ -1,0 +1,5 @@
+# Senhas locais do docker-compose (modelo em .env.example)
+.env
+
+# Arquivos compilados pelo Maven/IDE (gerados de novo a cada build)
+target/
