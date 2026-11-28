@@ -22,6 +22,6 @@ Antes de criar sua primeira branch ou abrir um Pull Request, leia o guia complet
 ### Resumo das regras
 
 - Branches protegidas: `main` (entregas revisadas) e `dev` (integração contínua).
-- Todo trabalho acontece em branches `<tipo>/<descricao-curta>` criadas a partir de `dev` e integradas via Pull Request com aprovação de review e CI verde.
+- Todo trabalho acontece em branches `<tipo>/<descricao-curta>` criadas a partir de `dev` e integradas via Pull Request com aprovação de review.
 - Commits e títulos de PR seguem **Conventional Commits** (`<tipo>(<escopo>): <resumo>`).
 - **Documentação viva:** se um PR alterar decisões de arquitetura, contratos de mensageria/banco ou regras de fluxo, atualize a documentação correspondente no mesmo PR.

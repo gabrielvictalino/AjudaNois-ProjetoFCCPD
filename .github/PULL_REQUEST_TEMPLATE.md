@@ -27,4 +27,3 @@
 - [ ] Branch criada a partir de `dev` seguindo `<tipo>/<descricao-curta>` (ou `dev -> main` para entrega de módulo)
 - [ ] PR apontando para a branch correta (`dev` para trabalho diário; `main` apenas a partir de `dev`)
 - [ ] Commits seguem Conventional Commits (`<tipo>(<escopo>): <resumo>`)
-- [ ] Pipeline de CI verde
