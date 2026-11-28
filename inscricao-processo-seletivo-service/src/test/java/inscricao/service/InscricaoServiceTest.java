@@ -151,6 +151,48 @@ class InscricaoServiceTest {
     }
 
     @Test
+    void deveRejeitarCancelamentoEmProcessoEncerradoOuInexistente() throws Exception {
+        service.inscreverAluno(1, 1001);
+
+        // Encerra o processo seletivo 1001
+        service.sincronizarProcessoSeletivo(new ProcessoSeletivoSyncEvent(
+                1001, 10, 100, "Monitoria FCCPD 2026.2", "ENCERRADO", 2
+        ));
+
+        RegraDeNegocioException exEncerrado = assertThrows(
+                RegraDeNegocioException.class,
+                () -> service.cancelarInscricao(1, 1001)
+        );
+        assertEquals(TipoErro.PROCESSO_ENCERRADO, exEncerrado.getTipoErro());
+        assertEquals(1, service.listarInscricoesPorProcesso(1001).size());
+
+        RegraDeNegocioException exInexistente = assertThrows(
+                RegraDeNegocioException.class,
+                () -> service.cancelarInscricao(1, 9999)
+        );
+        assertEquals(TipoErro.PROCESSO_NAO_ENCONTRADO, exInexistente.getTipoErro());
+    }
+
+    @Test
+    void devePermitirReinscricaoDoMesmoAlunoAposCancelamento() throws Exception {
+        Inscricao primeira = service.inscreverAluno(1, 1001);
+        assertEquals("INSCRITO", primeira.status());
+
+        Inscricao cancelada = service.cancelarInscricao(1, 1001);
+        assertEquals("CANCELADA", cancelada.status());
+        assertTrue(service.listarInscricoesPorAluno(1).isEmpty());
+
+        Inscricao reinscricao = service.inscreverAluno(1, 1001);
+        assertTrue(reinscricao.id() > primeira.id());
+        assertEquals("INSCRITO", reinscricao.status());
+        assertEquals(1, service.listarInscricoesPorProcesso(1001).size());
+        assertEquals(3, publisher.mensagens.size());
+        assertEquals(RabbitMQConfig.RK_INSCRICAO_CRIADA, publisher.mensagens.get(0).routingKey());
+        assertEquals(RabbitMQConfig.RK_INSCRICAO_CANCELADA, publisher.mensagens.get(1).routingKey());
+        assertEquals(RabbitMQConfig.RK_INSCRICAO_CRIADA, publisher.mensagens.get(2).routingKey());
+    }
+
+    @Test
     void deveGarantirConsistenciaForteEmInscricoesDuplicadasConcorrentes() throws Exception {
         ResultadoTesteConcorrencia resultado = service.simularConflitoInscricaoDuplicada(1, 1002, 10);
 

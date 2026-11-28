@@ -439,6 +439,11 @@ public class InscricaoRepository {
     /**
      * Cancela a inscrição de um aluno em um processo seletivo de forma atômica,
      * registrando o evento {@code inscricao.cancelada} no outbox.
+     *
+     * <p>Só permite cancelamento enquanto o processo seletivo estiver {@code ABERTO}.
+     * Utiliza exclusão física na tabela {@code inscricoes} para liberar a restrição
+     * {@code UNIQUE (aluno_id, processo_seletivo_id)} e permitir reinscrição posterior,
+     * preservando a trilha de auditoria em {@code eventos_outbox}.
      */
     public Inscricao cancelarInscricaoAtomico(
             int alunoId,
@@ -452,7 +457,21 @@ public class InscricaoRepository {
             conn.setTransactionIsolation(Connection.TRANSACTION_READ_COMMITTED);
 
             try {
-                bloquearProcessoSeletivo(conn, processoSeletivoId);
+                ProcessoLocked ps = bloquearProcessoSeletivo(conn, processoSeletivoId);
+                if (ps == null) {
+                    throw new RegraDeNegocioException(
+                            TipoErro.PROCESSO_NAO_ENCONTRADO,
+                            "Processo seletivo com ID " + processoSeletivoId + " não encontrado."
+                    );
+                }
+
+                if (ps.status != StatusProcessoSeletivo.ABERTO) {
+                    throw new RegraDeNegocioException(
+                            TipoErro.PROCESSO_ENCERRADO,
+                            "Processo seletivo " + processoSeletivoId + " está " + ps.status
+                                    + " e não permite cancelamento de inscrições."
+                    );
+                }
 
                 Inscricao existente = buscarInscricaoUnica(conn, alunoId, processoSeletivoId);
                 if (existente == null) {
