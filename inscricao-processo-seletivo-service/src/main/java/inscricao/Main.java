@@ -23,6 +23,8 @@ import inscricao.service.InscricaoService.ResultadoTesteConcorrencia;
 import java.sql.SQLException;
 import java.util.List;
 import java.util.Scanner;
+import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.atomic.AtomicBoolean;
 
 /**
  * Ponto de entrada do Microsserviço 4: Inscrição de Alunos em Processo Seletivo.
@@ -54,18 +56,45 @@ public class Main {
         outboxRelay.iniciar();
         consumer.iniciar();
 
+        CountDownLatch shutdownLatch = new CountDownLatch(1);
+        Object shutdownLock = new Object();
+        AtomicBoolean recursosFechados = new AtomicBoolean(false);
+        Runnable encerrarRecursos = () -> {
+            synchronized (shutdownLock) {
+                if (recursosFechados.compareAndSet(false, true)) {
+                    consumer.close();
+                    outboxRelay.close();
+                    publisher.close();
+                }
+            }
+        };
+
         Runtime.getRuntime().addShutdownHook(new Thread(() -> {
-            consumer.close();
-            outboxRelay.close();
-            publisher.close();
+            shutdownLatch.countDown();
+            encerrarRecursos.run();
         }, "ms4-shutdown"));
 
         try (Scanner scanner = new Scanner(System.in)) {
-            executarMenu(scanner, service);
+            executarMenuOuHeadless(scanner, service, shutdownLatch);
         } finally {
-            consumer.close();
-            outboxRelay.close();
-            publisher.close();
+            encerrarRecursos.run();
+        }
+    }
+
+    static void executarMenuOuHeadless(Scanner scanner, InscricaoService service, CountDownLatch shutdownLatch) {
+        try {
+            executarMenu(scanner, service);
+        } catch (EntradaEncerradaException e) {
+            System.out.println("\n[MS4] Entrada interativa indisponível (EOF). Mantendo serviço ativo em modo headless (consumidor RabbitMQ e OutboxRelay em execução)...");
+            aguardarEncerramento(shutdownLatch);
+        }
+    }
+
+    private static void aguardarEncerramento(CountDownLatch shutdownLatch) {
+        try {
+            shutdownLatch.await();
+        } catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
         }
     }
 
@@ -317,8 +346,7 @@ public class Main {
 
     private static int lerInteiro(Scanner scanner, String prompt) {
         while (true) {
-            System.out.print(prompt);
-            String linha = scanner.nextLine().trim();
+            String linha = lerLinha(scanner, prompt);
             try {
                 return Integer.parseInt(linha);
             } catch (NumberFormatException e) {
@@ -328,7 +356,19 @@ public class Main {
     }
 
     private static String lerTexto(Scanner scanner, String prompt) {
+        return lerLinha(scanner, prompt);
+    }
+
+    private static String lerLinha(Scanner scanner, String prompt) {
         System.out.print(prompt);
+        System.out.flush();
+        if (!scanner.hasNextLine()) {
+            throw new EntradaEncerradaException();
+        }
         return scanner.nextLine().trim();
+    }
+
+    private static final class EntradaEncerradaException extends RuntimeException {
+        private static final long serialVersionUID = 1L;
     }
 }
