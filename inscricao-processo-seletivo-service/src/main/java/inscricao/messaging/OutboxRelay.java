@@ -5,8 +5,10 @@ import inscricao.model.EventoOutbox;
 
 import java.util.List;
 import java.util.concurrent.Executors;
+import java.util.concurrent.RejectedExecutionException;
 import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicBoolean;
 
 /**
  * Worker de reprocessamento do Transactional Outbox.
@@ -18,10 +20,14 @@ import java.util.concurrent.TimeUnit;
 public class OutboxRelay implements AutoCloseable {
 
     private static final int LOTE_PADRAO = 50;
+    private static final long SHUTDOWN_GRACE_SECONDS = 2L;
 
     private final InscricaoRepository repository;
     private final EventPublisher publisher;
     private final long retryIntervalMs;
+    private final Object lifecycleLock = new Object();
+    private final Object dispatchLock = new Object();
+    private final AtomicBoolean disparoAgendado = new AtomicBoolean(false);
     private ScheduledExecutorService scheduler;
 
     public OutboxRelay(InscricaoRepository repository, EventPublisher publisher, long retryIntervalMs) {
@@ -30,21 +36,49 @@ public class OutboxRelay implements AutoCloseable {
         this.retryIntervalMs = retryIntervalMs;
     }
 
-    public synchronized void iniciar() {
-        if (scheduler != null && !scheduler.isShutdown()) {
+    public void iniciar() {
+        synchronized (lifecycleLock) {
+            if (scheduler != null && !scheduler.isShutdown()) {
+                return;
+            }
+            scheduler = Executors.newSingleThreadScheduledExecutor(r -> {
+                Thread t = new Thread(r, "ms4-outbox-relay");
+                t.setDaemon(true);
+                return t;
+            });
+            scheduler.scheduleWithFixedDelay(
+                    this::despacharPendentesSilencioso,
+                    retryIntervalMs,
+                    retryIntervalMs,
+                    TimeUnit.MILLISECONDS
+            );
+        }
+    }
+
+    /**
+     * Solicita um despacho assíncrono imediato no scheduler do Outbox sem bloquear a thread
+     * chamadora (evitando latência em cascata quando o RabbitMQ está indisponível).
+     * Múltiplos chamados concorrentes são coalescidos em uma única tarefa pendente.
+     */
+    public void dispararAssincrono() {
+        ScheduledExecutorService exec;
+        synchronized (lifecycleLock) {
+            exec = this.scheduler;
+        }
+        if (exec == null || exec.isShutdown()) {
             return;
         }
-        scheduler = Executors.newSingleThreadScheduledExecutor(r -> {
-            Thread t = new Thread(r, "ms4-outbox-relay");
-            t.setDaemon(true);
-            return t;
-        });
-        scheduler.scheduleWithFixedDelay(
-                this::despacharPendentesSilencioso,
-                retryIntervalMs,
-                retryIntervalMs,
-                TimeUnit.MILLISECONDS
-        );
+        if (!disparoAgendado.compareAndSet(false, true)) {
+            return;
+        }
+        try {
+            exec.execute(() -> {
+                disparoAgendado.set(false);
+                despacharPendentes();
+            });
+        } catch (RejectedExecutionException ignored) {
+            disparoAgendado.set(false);
+        }
     }
 
     /**
@@ -52,33 +86,35 @@ public class OutboxRelay implements AutoCloseable {
      *
      * @return quantidade de eventos efetivamente confirmados pelo broker nesta execução.
      */
-    public synchronized int despacharPendentes() {
-        int publicados = 0;
-        try {
-            List<EventoOutbox> pendentes = repository.buscarOutboxPendentes(LOTE_PADRAO);
-            for (EventoOutbox evento : pendentes) {
-                try {
-                    publisher.publicar(evento.exchangeName(), evento.routingKey(), evento.payload());
-                    repository.marcarOutboxPublicado(evento.id());
-                    publicados++;
-                    System.out.printf(
-                            "[OUTBOX] Evento #%d (%s) publicado e confirmado no RabbitMQ.%n",
-                            evento.id(), evento.routingKey()
-                    );
-                } catch (Exception falha) {
-                    repository.registrarFalhaOutbox(evento.id(), falha.getMessage());
-                    System.out.printf(
-                            "[OUTBOX] Falha ao publicar evento #%d (%s) — permanecerá PENDENTE para retry: %s%n",
-                            evento.id(), evento.routingKey(), falha.getMessage()
-                    );
-                    // Interrompe o lote se o broker estiver indisponível para tentar novamente no próximo ciclo
-                    break;
+    public int despacharPendentes() {
+        synchronized (dispatchLock) {
+            int publicados = 0;
+            try {
+                List<EventoOutbox> pendentes = repository.buscarOutboxPendentes(LOTE_PADRAO);
+                for (EventoOutbox evento : pendentes) {
+                    try {
+                        publisher.publicar(evento.exchangeName(), evento.routingKey(), evento.payload());
+                        repository.marcarOutboxPublicado(evento.id());
+                        publicados++;
+                        System.out.printf(
+                                "[OUTBOX] Evento #%d (%s) publicado e confirmado no RabbitMQ.%n",
+                                evento.id(), evento.routingKey()
+                        );
+                    } catch (Exception falha) {
+                        repository.registrarFalhaOutbox(evento.id(), falha.getMessage());
+                        System.out.printf(
+                                "[OUTBOX] Falha ao publicar evento #%d (%s) — permanecerá PENDENTE para retry: %s%n",
+                                evento.id(), evento.routingKey(), falha.getMessage()
+                        );
+                        // Interrompe o lote se o broker estiver indisponível para tentar novamente no próximo ciclo
+                        break;
+                    }
                 }
+            } catch (Exception dbError) {
+                System.out.println("[OUTBOX] Erro ao consultar eventos pendentes: " + dbError.getMessage());
             }
-        } catch (Exception dbError) {
-            System.out.println("[OUTBOX] Erro ao consultar eventos pendentes: " + dbError.getMessage());
+            return publicados;
         }
-        return publicados;
     }
 
     private void despacharPendentesSilencioso() {
@@ -86,10 +122,22 @@ public class OutboxRelay implements AutoCloseable {
     }
 
     @Override
-    public synchronized void close() {
-        if (scheduler != null) {
-            scheduler.shutdownNow();
-            scheduler = null;
+    public void close() {
+        ScheduledExecutorService exec;
+        synchronized (lifecycleLock) {
+            exec = this.scheduler;
+            this.scheduler = null;
+        }
+        if (exec != null) {
+            exec.shutdown();
+            try {
+                if (!exec.awaitTermination(SHUTDOWN_GRACE_SECONDS, TimeUnit.SECONDS)) {
+                    exec.shutdownNow();
+                }
+            } catch (InterruptedException e) {
+                exec.shutdownNow();
+                Thread.currentThread().interrupt();
+            }
         }
     }
 }

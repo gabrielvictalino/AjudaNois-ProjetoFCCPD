@@ -60,8 +60,8 @@ public class InscricaoService {
                 this::serializarEventoInscricao
         );
 
-        // Tentativa imediata de envio; caso o broker esteja fora, o OutboxRelay reenvia em background
-        outboxRelay.despacharPendentes();
+        // Disparo assíncrono imediato; caso o broker esteja fora ou lento, não bloqueia a inscrição
+        outboxRelay.dispararAssincrono();
         return inscricao;
     }
 
@@ -74,7 +74,7 @@ public class InscricaoService {
                 this::serializarEventoCancelamento
         );
 
-        outboxRelay.despacharPendentes();
+        outboxRelay.dispararAssincrono();
         return cancelada;
     }
 

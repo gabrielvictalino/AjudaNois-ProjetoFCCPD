@@ -5,19 +5,22 @@ import com.rabbitmq.client.Channel;
 import com.rabbitmq.client.Connection;
 import com.rabbitmq.client.ConnectionFactory;
 import com.rabbitmq.client.MessageProperties;
+import com.rabbitmq.client.Return;
 import inscricao.config.AppConfig;
 
 import java.io.IOException;
 import java.nio.charset.StandardCharsets;
 import java.util.concurrent.TimeoutException;
+import java.util.concurrent.atomic.AtomicReference;
 
 /**
  * Publicador RabbitMQ com:
  * <ul>
  *   <li>Exchange e fila de saída duráveis;</li>
  *   <li>Mensagens persistentes ({@code deliveryMode = 2});</li>
- *   <li>Publisher Confirms ({@code confirmSelect} + {@code waitForConfirmsOrDie}) para garantir
- *       que o broker gravou a mensagem antes da marcação do outbox como publicado.</li>
+ *   <li>Publisher Confirms ({@code confirmSelect} + {@code waitForConfirmsOrDie}) e
+ *       {@code ReturnListener} para detectar mensagens não roteáveis ({@code mandatory = true})
+ *       antes da marcação do outbox como publicado.</li>
  * </ul>
  */
 public class RabbitMQEventPublisher implements EventPublisher {
@@ -25,6 +28,7 @@ public class RabbitMQEventPublisher implements EventPublisher {
     private static final long CONFIRM_TIMEOUT_MS = 5_000L;
 
     private final ConnectionFactory factory;
+    private final AtomicReference<Return> mensagemRetornada = new AtomicReference<>();
     private Connection connection;
     private Channel channel;
 
@@ -43,6 +47,7 @@ public class RabbitMQEventPublisher implements EventPublisher {
     public synchronized void publicar(String exchange, String routingKey, String payloadJson)
             throws IOException, TimeoutException, InterruptedException {
         garantirCanalConectado();
+        mensagemRetornada.set(null);
 
         channel.basicPublish(
                 exchange,
@@ -52,6 +57,22 @@ public class RabbitMQEventPublisher implements EventPublisher {
                 payloadJson.getBytes(StandardCharsets.UTF_8)
         );
         channel.waitForConfirmsOrDie(CONFIRM_TIMEOUT_MS);
+
+        // No RabbitMQ, basic.return chega antes de basic.ack quando mandatory=true falha no roteamento
+        Return retorno = mensagemRetornada.getAndSet(null);
+        validarRetornoRoteamento(retorno, exchange, routingKey);
+    }
+
+    static void validarRetornoRoteamento(Return retorno, String exchange, String routingKey) throws IOException {
+        if (retorno != null) {
+            throw new IOException(String.format(
+                    "Mensagem não roteável (mandatory=true): code=%d (%s), exchange='%s', routingKey='%s'",
+                    retorno.getReplyCode(),
+                    retorno.getReplyText(),
+                    exchange,
+                    routingKey
+            ));
+        }
     }
 
     private void garantirCanalConectado() throws IOException, TimeoutException {
@@ -63,6 +84,7 @@ public class RabbitMQEventPublisher implements EventPublisher {
         connection = factory.newConnection("ms4-inscricao-publisher");
         channel = connection.createChannel();
         channel.confirmSelect();
+        channel.addReturnListener(retorno -> mensagemRetornada.compareAndSet(null, retorno));
 
         // Garante que exchange e fila durável de saída existam para evitar descarte silencioso
         channel.exchangeDeclare(RabbitMQConfig.EXCHANGE_EVENTOS, BuiltinExchangeType.TOPIC, true);

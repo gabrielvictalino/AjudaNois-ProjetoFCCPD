@@ -17,6 +17,7 @@ import inscricao.model.Eventos.ProcessoSeletivoSyncEvent;
 import inscricao.model.Eventos.SalaSyncEvent;
 import inscricao.model.Inscricao;
 import inscricao.service.InscricaoService.ResultadoTesteConcorrencia;
+import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 
@@ -28,8 +29,10 @@ import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.Future;
+import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicInteger;
+import java.util.function.BooleanSupplier;
 
 import static org.junit.jupiter.api.Assertions.*;
 
@@ -55,9 +58,17 @@ class InscricaoServiceTest {
         repository = new InscricaoRepository(conexao);
         publisher = new FakePublisher();
         outboxRelay = new OutboxRelay(repository, publisher, 60_000);
+        outboxRelay.iniciar();
         service = new InscricaoService(repository, outboxRelay, mapper);
 
         service.popularDadosExemplo();
+    }
+
+    @AfterEach
+    void tearDown() {
+        if (outboxRelay != null) {
+            outboxRelay.close();
+        }
     }
 
     @Test
@@ -71,7 +82,8 @@ class InscricaoServiceTest {
         assertEquals(10, inscricao.salaId());
         assertEquals("INSCRITO", inscricao.status());
 
-        // Evento publicado e outbox zerado
+        // Evento publicado de forma assíncrona e outbox zerado
+        aguardarCondicao(() -> publisher.mensagens.size() == 1 && contarPendentesSemExcecao() == 0);
         assertEquals(0, service.contarOutboxPendentes());
         assertEquals(1, publisher.mensagens.size());
         MensagemPublicada msg = publisher.mensagens.get(0);
@@ -142,6 +154,7 @@ class InscricaoServiceTest {
         // Cancela aluno 2 -> libera vaga e publica inscricao.cancelada
         Inscricao cancelada = service.cancelarInscricao(2, 1001);
         assertEquals("CANCELADA", cancelada.status());
+        aguardarCondicao(() -> publisher.mensagens.size() >= 3);
         assertEquals(RabbitMQConfig.RK_INSCRICAO_CANCELADA, publisher.mensagens.get(2).routingKey());
 
         // Agora aluno 3 consegue se inscrever
@@ -186,6 +199,7 @@ class InscricaoServiceTest {
         assertTrue(reinscricao.id() > primeira.id());
         assertEquals("INSCRITO", reinscricao.status());
         assertEquals(1, service.listarInscricoesPorProcesso(1001).size());
+        aguardarCondicao(() -> publisher.mensagens.size() == 3);
         assertEquals(3, publisher.mensagens.size());
         assertEquals(RabbitMQConfig.RK_INSCRICAO_CRIADA, publisher.mensagens.get(0).routingKey());
         assertEquals(RabbitMQConfig.RK_INSCRICAO_CANCELADA, publisher.mensagens.get(1).routingKey());
@@ -262,12 +276,22 @@ class InscricaoServiceTest {
         Inscricao inscricao = service.inscreverAluno(1, 1002);
         assertTrue(inscricao.id() > 0);
         assertEquals(1, service.listarInscricoesPorAluno(1).size());
+
+        aguardarCondicao(() -> {
+            try {
+                List<EventoOutbox> recentes = service.listarOutboxRecentes(5);
+                return !recentes.isEmpty() && recentes.get(0).tentativas() >= 1;
+            } catch (Exception e) {
+                return false;
+            }
+        });
+
         assertEquals(0, publisher.mensagens.size());
         assertEquals(1, service.contarOutboxPendentes());
 
         List<EventoOutbox> outbox = service.listarOutboxRecentes(5);
         assertEquals("PENDENTE", outbox.get(0).status());
-        assertEquals(1, outbox.get(0).tentativas());
+        assertTrue(outbox.get(0).tentativas() >= 1);
         assertNotNull(outbox.get(0).ultimoErro());
 
         // Broker volta ao ar -> reprocessamento entrega o evento sem perda de dados
@@ -280,15 +304,66 @@ class InscricaoServiceTest {
         assertEquals(RabbitMQConfig.RK_INSCRICAO_CRIADA, publisher.mensagens.get(0).routingKey());
     }
 
+    @Test
+    void naoDeveBloquearInscricaoQuandoBrokerEstiverTravado() throws Exception {
+        CountDownLatch publicacaoIniciada = new CountDownLatch(1);
+        CountDownLatch liberarBroker = new CountDownLatch(1);
+        publisher.publicacaoIniciada = publicacaoIniciada;
+        publisher.bloquearAte = liberarBroker;
+
+        long inicioNs = System.nanoTime();
+        service.inscreverAluno(1, 1001);
+        assertTrue(publicacaoIniciada.await(2, TimeUnit.SECONDS));
+
+        // Segunda inscrição ocorre enquanto a primeira tentativa de envio no broker ainda está bloqueada
+        service.inscreverAluno(2, 1001);
+        long duracaoMs = TimeUnit.NANOSECONDS.toMillis(System.nanoTime() - inicioNs);
+        assertTrue(duracaoMs < 1_000, "Inscrição não deveria bloquear esperando o broker (levou " + duracaoMs + "ms)");
+
+        liberarBroker.countDown();
+        aguardarCondicao(() -> publisher.mensagens.size() == 2 && contarPendentesSemExcecao() == 0);
+        assertEquals(2, publisher.mensagens.size());
+        assertEquals(0, service.contarOutboxPendentes());
+    }
+
+    private int contarPendentesSemExcecao() {
+        try {
+            return service.contarOutboxPendentes();
+        } catch (Exception e) {
+            return -1;
+        }
+    }
+
+    private static void aguardarCondicao(BooleanSupplier condicao) throws InterruptedException {
+        long limite = System.nanoTime() + TimeUnit.SECONDS.toNanos(3);
+        while (System.nanoTime() < limite) {
+            if (condicao.getAsBoolean()) {
+                return;
+            }
+            Thread.sleep(15);
+        }
+        assertTrue(condicao.getAsBoolean(), "Condição assíncrona não foi satisfeita dentro do tempo limite.");
+    }
+
     private record MensagemPublicada(String exchange, String routingKey, String payload) {
     }
 
     private static final class FakePublisher implements EventPublisher {
         final AtomicBoolean falhar = new AtomicBoolean(false);
         final List<MensagemPublicada> mensagens = Collections.synchronizedList(new ArrayList<>());
+        volatile CountDownLatch publicacaoIniciada;
+        volatile CountDownLatch bloquearAte;
 
         @Override
-        public void publicar(String exchange, String routingKey, String payloadJson) {
+        public void publicar(String exchange, String routingKey, String payloadJson) throws InterruptedException {
+            CountDownLatch iniciada = publicacaoIniciada;
+            if (iniciada != null) {
+                iniciada.countDown();
+            }
+            CountDownLatch gate = bloquearAte;
+            if (gate != null) {
+                gate.await(5, TimeUnit.SECONDS);
+            }
             if (falhar.get()) {
                 throw new RuntimeException("Broker RabbitMQ indisponível (simulação de falha)");
             }
