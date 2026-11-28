@@ -2,7 +2,7 @@
 
 Este documento explica como o time do **AjudaNois (Projeto FCCPD)** leva código de uma ideia até a `main`. Foi escrito para todo colaborador — leia antes da sua primeira branch, e releia se o fluxo parecer ambíguo no meio de um PR.
 
-Sempre que o time alterar convenções de branch, etapas do pipeline de CI ou regras de review, atualize *este* documento no mesmo PR — conforme a própria convenção do [`README.md`](../README.md).
+Sempre que o time alterar convenções de branch, validações de PR ou regras de review, atualize *este* documento no mesmo PR — conforme a própria convenção do [`README.md`](../README.md).
 
 ---
 
@@ -66,15 +66,12 @@ As regras ficam configuradas em **GitHub repo settings → Rules → Rulesets**,
 
 - Exigir um pull request antes do merge. Sem pushes diretos, inclusive de admins.
 - Exigir ao menos uma aprovação em review (suba para duas se o time decidir aumentar o rigor nas entregas).
-- Exigir que os status checks passem — a CI (`Build & Test`) precisa estar verde (veja §6).
-- Exigir que as branches estejam atualizadas antes do merge (*strict status checks*).
 - Bloquear force pushes e exclusão da branch.
 
 ### `dev` — ruleset mais leve (`Protect dev`)
 
 - Exigir um pull request antes do merge (ninguém dá push direto, nem para consertar algo pequeno — é para isso que existe `fix/*`).
 - Exigir ao menos uma aprovação em review.
-- Exigir CI verde (`Build & Test`).
 - Bloquear force pushes e exclusão da branch — raramente há um bom motivo para reescrever o histórico da `dev`.
 
 > O objetivo de proteger a `dev` além da `main` é que um merge ruim na `dev` trava todo mundo que está construindo em cima dela pelo resto da entrega. Proteção não é só para a branch principal — é para a branch da qual o trabalho dos colegas depende.
@@ -105,7 +102,7 @@ As regras ficam configuradas em **GitHub repo settings → Rules → Rulesets**,
 7. **Faça o merge e apague a branch.** Squash-merge é recomendado apenas se o PR tiver vários commits menores/intermediários, para que o histórico da `dev` se leia como um commit por feature em vez de cada `"wip"`. Se não for o caso, siga com o Merge Commit tradicional.
 8. **Repita de 2 a 7** para cada feature, correção e mudança de documentação que pertença à entrega ou módulo atual.
 9. **Quando o módulo estiver completo, abra um PR de `dev` para `main`.** Este é o review de maior peso — trate-o como um checkpoint, não como formalidade: o sistema realmente compila e funciona ponta a ponta (cliente, servidor, coordenador, RabbitMQ e MySQL), e a documentação reflete a realidade?
-10. **Faça o merge na `main`** assim que aprovado e com a CI verde. Opcionalmente marque o commit de merge com uma tag (`v0.1.0`, `v0.2.0`, ...) para que a fronteira de cada entrega fique visível no histórico do repositório.
+10. **Faça o merge na `main`** assim que aprovado em review. Opcionalmente marque o commit de merge com uma tag (`v0.1.0`, `v0.2.0`, ...) para que a fronteira de cada entrega fique visível no histórico do repositório.
 
 ---
 
@@ -127,6 +124,7 @@ O `<escopo>` deve corresponder ao módulo ou área do projeto afetada:
 - `cliente` — aplicação cliente em `cliente/`
 - `servidor` — servidor de processamento concorrente em `servidor/`
 - `coordenador` — serviço de coordenação e banco de dados em `cordenador-gerenciamento-service/`
+- `inscricao` — serviço de inscrição em processo seletivo em `inscricao-processo-seletivo-service/`
 - `infra` — `docker-compose.yml`, `dockerfile`, configuração de RabbitMQ/MySQL
 - `ci` — workflows em `.github/workflows/`
 - `docs` — documentação (`README.md`, `docs/`)
@@ -163,19 +161,15 @@ Este repositório já possui o template [`.github/PULL_REQUEST_TEMPLATE.md`](../
 
 ---
 
-## 6. Expectativas do pipeline de CI
+## 6. Validações automáticas de PR (GitHub Actions)
 
-A CI está configurada em [`.github/workflows/ci.yml`](../.github/workflows/ci.yml) e roda automaticamente em todo PR (e push) para `dev` e `main`. No mínimo, o pipeline verifica:
+O workflow em [`.github/workflows/ci.yml`](../.github/workflows/ci.yml) roda automaticamente em todo PR para `dev` e `main` verificando:
 
-1. **Build e testes unitários (`Build & Test`)**:
-   - Configura Java 21 (Temurin) com cache de dependências Maven.
-   - Executa `mvn -B test` no projeto multi-módulo raiz, compilando todos os módulos (`entidades`, `cliente`, `servidor`, `cordenador-gerenciamento-service`) e executando os testes unitários.
-   - Valida a sintaxe do `docker-compose.yml` com `docker compose config -q`.
-2. **Convenções de PR (`PR Conventions`)**:
-   - Valida que o nome da branch de origem segue `<tipo>/<descricao-curta>` (exceto em PRs de `dev` para `main`).
-   - Valida que o título do PR segue Conventional Commits (`<tipo>(<escopo>): <resumo>`).
+- **Convenções de PR (`PR Conventions`)**:
+  - Valida que o nome da branch de origem segue `<tipo>/<descricao-curta>` (exceto em PRs de `dev` para `main`).
+  - Valida que o título do PR segue Conventional Commits (`<tipo>(<escopo>): <resumo>`).
 
-Passar no check **`Build & Test`** é obrigatório nos rulesets de `dev` e `main` (§2) — o sinal verde é um portão, não uma sugestão.
+> O job de build/testes multi-módulo foi removido do workflow para agilizar a integração entre os módulos; antes de solicitar review no PR, recomenda-se rodar localmente os testes do módulo alterado (`mvn -B -pl <modulo> -am test`) e `docker compose config -q`.
 
 ---
 

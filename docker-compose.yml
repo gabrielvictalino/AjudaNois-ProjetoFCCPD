@@ -44,6 +44,46 @@ services:
     volumes:
       - coordenador_data:/var/lib/mysql
 
+  inscricao-processo-seletivo:
+    build:
+      context: .
+      dockerfile: inscricao-processo-seletivo-service/Dockerfile
+    container_name: ajudanois-inscricao-ps
+
+    stdin_open: true
+    tty: true
+
+    environment:
+      DB_URL: jdbc:mysql://db-inscricao-ps:3306/inscricao_ps_db?useSSL=false&allowPublicKeyRetrieval=true
+      DB_USER: inscricao
+      DB_PASSWORD: senha
+      RABBITMQ_HOST: rabbitmq
+      RABBITMQ_PORT: 5672
+      RABBITMQ_USER: admin
+      RABBITMQ_PASS: admin
+      OUTBOX_RETRY_MS: 5000
+
+    depends_on:
+      - rabbitmq
+      - db-inscricao-ps
+
+  db-inscricao-ps:
+    image: mysql:8.4
+    container_name: ajudanois-db-inscricao-ps
+
+    ports:
+      - "3307:3306"
+
+    environment:
+      MYSQL_DATABASE: inscricao_ps_db
+      MYSQL_USER: inscricao
+      MYSQL_PASSWORD: senha
+      MYSQL_ROOT_PASSWORD: root_senha
+
+    volumes:
+      - inscricao_ps_data:/var/lib/mysql
+
 volumes:
   rabbitmq_data:
   coordenador_data:
+  inscricao_ps_data:
